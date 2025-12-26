@@ -38,6 +38,7 @@ jobs:
           HARDCOVER_API_TOKEN: ${{ secrets.HARDCOVER_API_TOKEN }}
           NOCACHE: "1"
           CACHE_TTL_SECONDS: "0"
+          BASE_PATH: /
         run: |
           rm -rf .cache
           python build_static.py

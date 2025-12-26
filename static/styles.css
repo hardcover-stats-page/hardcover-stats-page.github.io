@@ -1,10 +1,9 @@
 :root{
   --bg:#0b0f12;
   --panel:#111820;
-  --panel2:#0f151c;
   --text:#e7f0f6;
   --muted:#9bb0bf;
-  --accent:#27d07d;   /* green */
+  --accent:#27d07d;
   --warn:#f0c24b;
   --line:rgba(39,208,125,0.55);
   --shadow:0 10px 30px rgba(0,0,0,.35);
@@ -74,7 +73,6 @@ a{color:inherit;text-decoration:none}
 .label{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.08em}
 .value{font-size:26px;font-weight:900;margin-top:6px}
 .muted{color:var(--muted)}
-.small{font-size:12px}
 
 .section{margin-top:22px}
 h2{margin:0 0 12px 0;font-size:18px}
@@ -119,7 +117,6 @@ h2{margin:0 0 12px 0;font-size:18px}
   background: rgba(0,0,0,0.18);
 }
 .chip.warn{border-color: rgba(240,194,75,0.6); color: rgba(240,194,75,0.95);}
-
 .stars{color: var(--warn); font-size:13px; letter-spacing:1px}
 
 .barchart{display:flex;flex-direction:column;gap:10px;margin-top:6px}

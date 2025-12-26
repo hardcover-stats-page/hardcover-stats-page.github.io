@@ -48,8 +48,8 @@ jobs:
 
           # sanity output
           ls -la docs
-          ls -la docs/reading
-          test -f docs/reading/index.html
+          ls -la docs
+          test -f docs/index.html
 
       - name: Configure Pages
         uses: actions/configure-pages@v5

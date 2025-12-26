@@ -17,7 +17,7 @@ CACHE_PATH = ROOT / ".cache" / "hardcover.json"
 CACHE_TTL = int(os.getenv("CACHE_TTL_SECONDS", "900"))
 
 
-def now_utc():
+def utc_now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
@@ -25,6 +25,19 @@ def copy_static():
     if STATIC_DST.exists():
         shutil.rmtree(STATIC_DST)
     shutil.copytree(STATIC_SRC, STATIC_DST)
+
+
+def normalize_me(raw_me):
+    """
+    Hardcover quirk:
+    - sometimes `me` is a dict
+    - sometimes it's a list with exactly 1 element
+    """
+    if isinstance(raw_me, list):
+        if not raw_me:
+            raise RuntimeError("Hardcover API returned empty `me` list")
+        return raw_me[0]
+    return raw_me
 
 
 def compute_totals(finished):
@@ -56,22 +69,25 @@ def main():
         nocache=nocache,
     )
 
-    me_raw = raw["me"]
-    books = me_raw["user_books"]
+    # ✅ FIX: normalize `me`
+    me_raw = normalize_me(raw["me"])
+    user_books = me_raw.get("user_books", [])
 
     currently = []
     finished = []
 
-    for ub in books:
+    for ub in user_books:
         book = ub["book"]
-        authors = ", ".join(a["author"]["name"] for a in book["contributions"])
+        authors = ", ".join(
+            a["author"]["name"] for a in book.get("contributions", [])
+        )
 
         entry = {
             "title": book["title"],
             "author": authors,
-            "pages": book["pages"],
-            "cover": book["image"]["url"] if book["image"] else None,
-            "rating_stars": ub["rating"],
+            "pages": book.get("pages"),
+            "cover": book["image"]["url"] if book.get("image") else None,
+            "rating_stars": ub.get("rating"),
             "hardcover_book_url": f"https://hardcover.app/books/{book['slug']}",
             "progress": 0,
             "pct": None,
@@ -79,12 +95,15 @@ def main():
             "missing": False,
         }
 
-        reads = ub["user_book_reads"] or []
+        reads = ub.get("user_book_reads") or []
         if reads:
-            r = reads[-1]
-            entry["progress"] = r["progress"] or 0
-            if book["pages"]:
-                entry["pct"] = int(entry["progress"] / book["pages"] * 100)
+            r = reads[-1]  # always newest read
+            entry["progress"] = r.get("progress") or 0
+
+            if entry["pages"]:
+                entry["pct"] = int(entry["progress"] / entry["pages"] * 100)
+            else:
+                entry["missing"] = True
 
             if r.get("started_at") and r.get("finished_at"):
                 sd = datetime.fromisoformat(r["started_at"][:10])
@@ -103,40 +122,38 @@ def main():
 
     html = tpl.render(
         me={
-            "name": me_raw["name"],
-            "username": me_raw["username"],
-            "avatar": me_raw["image"]["url"] if me_raw["image"] else None,
-            "profile_url": f"https://hardcover.app/@{me_raw['username']}",
+            "name": me_raw.get("name"),
+            "username": me_raw.get("username"),
+            "avatar": me_raw["image"]["url"] if me_raw.get("image") else None,
+            "profile_url": f"https://hardcover.app/@{me_raw.get('username')}",
         },
         stats={
-            "goal_total": me_raw["goals"][0]["goal"] if me_raw["goals"] else 0,
-            "goal_progress": me_raw["goals"][0]["progress"] if me_raw["goals"] else 0,
+            "goal_total": me_raw["goals"][0]["goal"] if me_raw.get("goals") else 0,
+            "goal_progress": me_raw["goals"][0]["progress"] if me_raw.get("goals") else 0,
             "goal_pct": (
                 me_raw["goals"][0]["progress"] / me_raw["goals"][0]["goal"] * 100
-                if me_raw["goals"] else 0
+                if me_raw.get("goals") else 0
             ),
             "year": datetime.now().year,
         },
         totals=totals,
         currently=currently,
-        books_per_year=[],  # already rendered elsewhere
+        timeline=[],           # comes later
+        books_per_year=[],     # comes later
         books_per_year_max=0,
-        timeline=[],
-        build={"stamp": now_utc()},
+        build={"stamp": utc_now()},
     )
 
     (DOCS / "reading").mkdir(parents=True, exist_ok=True)
     (DOCS / "reading" / "index.html").write_text(html, encoding="utf-8")
 
     (DOCS / "build.json").write_text(
-        json.dumps(
-            {"build": now_utc(), "totals": totals},
-            indent=2,
-        ),
+        json.dumps({"build": utc_now(), "totals": totals}, indent=2),
         encoding="utf-8",
     )
 
     copy_static()
+    print("✔ static page built successfully")
 
 
 if __name__ == "__main__":

@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-Builds a static Hardcover reading dashboard for GitHub Pages.
+Build static Hardcover dashboard for GitHub Pages.
 
 Outputs:
   - docs/reading/index.html
-  - docs/static/styles.css
-  - docs/build.json (small, safe debug: build stamp + first currently reading progress samples)
+  - docs/static/styles.css (copied)
+  - docs/build.json   (proof file: stamp + first current progress)
 
-Env required:
+Required env:
   HARDCOVER_API_TOKEN
 
-Optional:
+Optional env:
   CACHE_PATH (default: .cache/hardcover_cache.json)
   CACHE_TTL_SECONDS (default: 900)
   NOCACHE (default: 0)
@@ -77,6 +77,7 @@ def _days_between(start: Optional[datetime], end: Optional[datetime]) -> Optiona
 
 
 def _rating_to_stars(rating: Any) -> Optional[int]:
+    # Hardcover may return 1-5 or 0-10. Map to 1-5.
     if rating is None:
         return None
     try:
@@ -117,8 +118,11 @@ def _normalize_me(me_raw: Any) -> Dict[str, Any]:
 
 def _pick_read_record(user_book_reads: Any) -> Dict[str, Any]:
     """
-    Avoid "static progress" caused by taking user_book_reads[0] (old read record).
-    We pick the record with highest progress; if all are 0/None, fallback to last element.
+    Avoid "static progress" caused by taking user_book_reads[0] (often an old record).
+    Strategy:
+      1) keep only dict entries
+      2) pick record with highest progress
+      3) if all progress are 0/None -> fallback to last element
     """
     if not isinstance(user_book_reads, list) or not user_book_reads:
         return {}
@@ -321,13 +325,12 @@ def main() -> None:
     data = fetch_hardcover_data(token, cache_path, ttl, nocache=nocache)
     me = _normalize_me(data.get("me"))
 
-    now_year = date.today().year
-    today = date.today()
+    build_stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
     currently = _build_currently(me)
     finished = _build_finished(me.get("recently_read") or [])
     timeline = _group_timeline(finished)
-    bpy, bpy_max = _books_per_year(finished)
+    books_per_year, books_per_year_max = _books_per_year(finished)
 
     avg_med = _avg_median_days(finished)
     streak = _monthly_streak(finished)
@@ -338,23 +341,11 @@ def main() -> None:
     goal_progress = _safe_int((g0 or {}).get("progress"))
     goal_pct = (goal_progress / goal_total * 100) if goal_total > 0 else None
 
-    build_stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-
-    # Small, safe build proof file: helps diagnose "static data" on Pages
-    # (No token, no full raw payload.)
-    build_proof = {
-        "build_stamp_utc": build_stamp,
-        "username": me.get("username"),
-        "currently_reading_count": len(me.get("currently_reading") or []),
-        "first_current_title": (currently[0]["title"] if currently else None),
-        "first_current_progress": (currently[0]["progress"] if currently else None),
-        "first_current_pct": (currently[0]["pct"] if currently else None),
-    }
-
     env = Environment(loader=FileSystemLoader("templates"), autoescape=select_autoescape(["html"]))
     tpl = env.get_template("reading.html")
 
     vm = {
+        "rel_root": "../",  # for docs/reading/index.html -> ../static/styles.css and ../build.json
         "build": {"stamp": build_stamp},
         "me": {
             "username": me.get("username"),
@@ -362,12 +353,11 @@ def main() -> None:
             "avatar": ((me.get("image") or {}).get("url")),
             "profile_url": f"https://hardcover.app/@{me.get('username')}" if me.get("username") else None,
         },
-        "now_year": now_year,
         "currently": currently,
         "timeline": timeline,
         "finished_count": len(finished),
-        "books_per_year": bpy,
-        "books_per_year_max": bpy_max,
+        "books_per_year": books_per_year,
+        "books_per_year_max": books_per_year_max,
         "stats": {
             "goal_total": goal_total,
             "goal_progress": goal_progress,
@@ -386,13 +376,22 @@ def main() -> None:
     out_file = out_dir / "index.html"
     out_file.write_text(out_html, encoding="utf-8")
 
+    # Proof file to diagnose "static data" vs "stale deploy"
+    build_proof = {
+        "build_stamp_utc": build_stamp,
+        "username": me.get("username"),
+        "currently_reading_count": len(me.get("currently_reading") or []),
+        "first_current_title": (currently[0]["title"] if currently else None),
+        "first_current_progress": (currently[0]["progress"] if currently else None),
+        "first_current_pct": (currently[0]["pct"] if currently else None),
+    }
     Path("docs").mkdir(exist_ok=True)
     Path("docs/build.json").write_text(json.dumps(build_proof, ensure_ascii=False, indent=2), encoding="utf-8")
 
     _copy_assets_to_docs()
 
     print(f"[OK] wrote: {out_file.resolve()}")
-    print("[OK] wrote: docs/build.json (proof)")
+    print("[OK] wrote: docs/build.json")
     print("[OK] local test: python -m http.server -d docs 8000 -> http://localhost:8000/reading/")
 
 

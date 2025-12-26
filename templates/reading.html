@@ -2,89 +2,186 @@
 {% block title %}Reading Dashboard{% endblock %}
 
 {% macro stars(n) -%}
-  {% if n %}
-    <span class="stars">
-      {% for _ in range(n) %}★{% endfor %}
+  {%- if n -%}
+    <span class="stars" aria-label="{{n}} stars">
+      {%- for _ in range(n) -%}★{%- endfor -%}
     </span>
-  {% endif %}
+  {%- endif -%}
 {%- endmacro %}
 
 {% block content %}
-<header class="header">
-  <div class="profile">
-    {% if me.avatar %}
-      <img class="avatar" src="{{ me.avatar }}">
-    {% else %}
-      <div class="avatar placeholder">?</div>
-    {% endif %}
-    <div>
-      <div class="profile-name">{{ me.name }}</div>
-      <div class="muted">@{{ me.username }}</div>
-      <a class="link" href="{{ me.profile_url }}" target="_blank">Hardcover Profil</a>
-    </div>
-  </div>
+  <header class="header">
+    <div class="profile">
+      {% if me.avatar %}
+        <img class="avatar" src="{{ me.avatar }}" alt="Avatar">
+      {% else %}
+        <div class="avatar placeholder">?</div>
+      {% endif %}
 
-  <div class="stats">
-    <div class="card">
-      <div class="label">Finished (gesamt)</div>
-      <div class="value">{{ finished_count }}</div>
-    </div>
-
-    <div class="card">
-      <div class="label">Goal</div>
-      <div class="value">{{ stats.goal_progress }}/{{ stats.goal_total }}</div>
-      <div class="muted">{{ "%.1f"|format(stats.goal_pct) }}%</div>
+      <div class="profile-meta">
+        <div class="profile-name">{{ me.name }}</div>
+        {% if me.username %}
+          <div class="muted">@{{ me.username }}</div>
+        {% endif %}
+        {% if me.profile_url %}
+          <div><a class="link" href="{{ me.profile_url }}" target="_blank" rel="noreferrer">Hardcover Profil</a></div>
+        {% endif %}
+      </div>
     </div>
 
-    <div class="card">
-      <div class="label">Monthly streak</div>
-      <div class="value">{{ stats.streak_monthly_current }}</div>
-      <div class="muted">best {{ stats.streak_monthly_best }}</div>
-    </div>
-  </div>
-</header>
+    <div class="stats">
+      <div class="card">
+        <div class="label">Finished (gesamt)</div>
+        <div class="value">{{ finished_count }}</div>
+        <div class="muted">Top lists below</div>
+      </div>
 
-<section class="section">
-  <h2>Currently Reading</h2>
-
-  <div class="grid">
-    {% for b in currently %}
-      <a class="bookcard" href="{{ b.hardcover_book_url }}" target="_blank">
-        <div class="cover">
-          {% if b.cover %}
-            <img src="{{ b.cover }}">
+      <div class="card">
+        <div class="label">Goal</div>
+        <div class="value">
+          {% if stats.goal_total and stats.goal_total > 0 %}
+            {{ stats.goal_progress }}/{{ stats.goal_total }}
           {% else %}
-            <div class="nocover">No Cover</div>
+            –
           {% endif %}
         </div>
-        <div class="bookmeta">
-          <div class="title">{{ b.title }}</div>
-          <div class="muted">{{ b.author }}</div>
-          <div class="chips">
-            {% if b.pages %}
-              <span class="chip">{{ b.progress }}/{{ b.pages }}</span>
-            {% endif %}
-            {% if b.pct is not none %}
-              <span class="chip">{{ b.pct }}%</span>
-            {% endif %}
-            {{ stars(b.rating_stars) }}
-          </div>
+        <div class="muted">
+          {% if stats.goal_pct is not none %}
+            {{ "%.1f"|format(stats.goal_pct) }}%
+          {% endif %}
         </div>
-      </a>
-    {% endfor %}
-  </div>
-</section>
+      </div>
 
-<section class="section">
-  <h2>Books per Year</h2>
-  <div class="card">
-    {% for row in books_per_year %}
-      <div>{{ row.year }} – {{ row.count }}</div>
-    {% endfor %}
-  </div>
-</section>
+      <div class="card">
+        <div class="label">Monthly streak</div>
+        <div class="value">{{ stats.streak_monthly_current }}</div>
+        <div class="muted">best: {{ stats.streak_monthly_best }}</div>
+      </div>
+    </div>
+  </header>
 
-<footer class="footer muted">
-  Build: {{ build.stamp }} · <a href="/build.json" target="_blank">build.json</a>
-</footer>
+  <section class="section">
+    <h2>Books per year</h2>
+    <div class="card">
+      {% if books_per_year and books_per_year|length > 0 %}
+        <div class="barchart">
+          {% for row in books_per_year %}
+            {% set w = (row.count / books_per_year_max * 100) if books_per_year_max > 0 else 0 %}
+            <div class="barrow">
+              <div class="barlabel">{{ row.year }}</div>
+              <div class="barwrap">
+                <div class="bar" style="width: {{ w }}%"></div>
+              </div>
+              <div class="barcount">{{ row.count }}</div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="muted">No data.</div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Currently reading</h2>
+
+    {% if currently and currently|length > 0 %}
+      <div class="grid">
+        {% for b in currently %}
+          <a class="bookcard" href="{{ b.hardcover_book_url }}" target="_blank" rel="noreferrer">
+            <div class="cover">
+              {% if b.cover %}
+                <img src="{{ b.cover }}" alt="Cover">
+              {% else %}
+                <div class="nocover">No Cover</div>
+              {% endif %}
+            </div>
+
+            <div class="bookmeta">
+              <div class="title">{{ b.title }}</div>
+              <div class="muted">{{ b.author }}</div>
+
+              <div class="chips">
+                {% if b.pages %}
+                  <span class="chip">{{ b.progress }}/{{ b.pages }} pages</span>
+                {% else %}
+                  <span class="chip">progress {{ b.progress }}</span>
+                {% endif %}
+                {% if b.pct is not none %}
+                  <span class="chip">{{ b.pct }}%</span>
+                {% endif %}
+                {{ stars(b.rating_stars) }}
+                {% if b.missing and b.missing|length > 0 %}
+                  <span class="chip warn">missing: {{ b.missing|join(", ") }}</span>
+                {% endif %}
+              </div>
+            </div>
+          </a>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="card empty">
+        <div class="label">No current reads found.</div>
+        <div class="muted">Check Hardcover statuses (status_id=2) or token permissions.</div>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="section">
+    <h2>Timeline</h2>
+
+    {% for y in timeline %}
+      <div class="yearbox">
+        <div class="yearhead">
+          <div class="year">{{ y.year }}</div>
+          <div class="muted">{{ y.count }} books</div>
+        </div>
+
+        <div class="timeline">
+          <div class="line"></div>
+
+          {% for m in y.months %}
+            <div class="month">
+              <div class="monthhead">{{ m.month_name }} <span class="muted">({{ m.count }})</span></div>
+
+              <div class="monthlist">
+                {% for b in m.books %}
+                  <a class="row" href="{{ b.hardcover_book_url }}" target="_blank" rel="noreferrer">
+                    <div class="dot"></div>
+
+                    <div class="rowcover">
+                      {% if b.cover %}
+                        <img src="{{ b.cover }}" alt="Cover">
+                      {% else %}
+                        <div class="nocover small">No Cover</div>
+                      {% endif %}
+                    </div>
+
+                    <div class="rowmeta">
+                      <div class="title">{{ b.title }}</div>
+                      <div class="muted">{{ b.author }}</div>
+
+                      <div class="chips">
+                        {% if b.pages %}<span class="chip">{{ b.pages }} pages</span>{% endif %}
+                        {% if b.duration_days %}<span class="chip">{{ b.duration_days }} days</span>{% endif %}
+                        {{ stars(b.rating_stars) }}
+                        {% if b.missing and b.missing|length > 0 %}
+                          <span class="chip warn">missing: {{ b.missing|join(", ") }}</span>
+                        {% endif %}
+                      </div>
+                    </div>
+                  </a>
+                {% endfor %}
+              </div>
+
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endfor %}
+  </section>
+
+  <footer class="footer muted">
+    Build: {{ build.stamp }} · <a class="link" href="/build.json" target="_blank" rel="noreferrer">build.json</a>
+  </footer>
 {% endblock %}

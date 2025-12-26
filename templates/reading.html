@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+{% block title %}Reading{% endblock %}
+
+{% macro stars(n) -%}
+  {%- if n is none -%}
+    <span class="muted">—</span>
+  {%- else -%}
+    {% set n = n|int %}
+    <span class="stars" title="{{ n }}/5">
+      {%- for i in range(1,6) -%}
+        {%- if i <= n -%}★{%- else -%}<span class="star-off">★</span>{%- endif -%}
+      {%- endfor -%}
+    </span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro chip(text, title_text=None, kind="") -%}
+  <span class="chip {{ kind }}" {% if title_text %}title="{{ title_text }}"{% endif %}>{{ text }}</span>
+{%- endmacro %}
+
+{% macro cover_placeholder(size) -%}
+  <div class="no-cover {{ size }}">No Cover</div>
+{%- endmacro %}
+
+{% block content %}
+
+<header class="top">
+  <div class="profile">
+    {% if me.avatar %}
+      <img class="avatar" src="{{ me.avatar }}" alt="avatar">
+    {% else %}
+      <div class="avatar fallback">👤</div>
+    {% endif %}
+    <div class="pmeta">
+      <div class="title">Reading Dashboard</div>
+      <div class="subtitle">
+        {% if me.profile_url %}
+          <a href="{{ me.profile_url }}" target="_blank" rel="noopener">{{ me.name or me.username }}</a>
+        {% else %}
+          {{ me.name or me.username }}
+        {% endif %}
+      </div>
+      <div class="subtitle muted">Static GitHub Pages · auto-updated by Actions</div>
+    </div>
+  </div>
+
+  <div class="nav">
+    <a href="./index.html">Reload</a>
+  </div>
+</header>
+
+<section class="cards">
+  <div class="card">
+    <div class="k">Goal</div>
+    {% if stats.goal_total and stats.goal_total > 0 %}
+      <div class="v">{{ stats.goal_progress }} / {{ stats.goal_total }}</div>
+      <div class="s">{{ "%.1f"|format(stats.goal_pct) }}%</div>
+      <div class="bar"><div class="barin" style="width: {{ stats.goal_pct }}%"></div></div>
+    {% else %}
+      <div class="v muted">No goal data</div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="k">Avg / Median days</div>
+    <div class="v">
+      {% if stats.avg_days is not none %}{{ "%.1f"|format(stats.avg_days) }}{% else %}—{% endif %}
+      /
+      {% if stats.median_days is not none %}{{ "%.0f"|format(stats.median_days) }}{% else %}—{% endif %}
+    </div>
+    <div class="s">Monthly streak: current {{ stats.streak_monthly_current }} · best {{ stats.streak_monthly_best }}</div>
+  </div>
+
+  <div class="card">
+    <div class="k">Projection ({{ now_year }})</div>
+    <div class="s">books ~{{ "%.1f"|format(stats.proj_books_projected) }} · pages ~{{ "%.0f"|format(stats.proj_pages_projected) }}</div>
+    <div class="s">So far: {{ stats.proj_books_so_far }} books · {{ stats.proj_pages_so_far }} pages</div>
+  </div>
+
+  <div class="card">
+    <div class="k">Ø pace (so far)</div>
+    {% set day_of_year = today.day_of_year %}
+    {% set month_of_year = today.month_of_year %}
+    <div class="s">Ø {{ "%.0f"|format(stats.proj_pages_so_far / (day_of_year if day_of_year else 1)) }} pages / day</div>
+    <div class="s">Ø {{ "%.2f"|format(stats.proj_books_so_far / (month_of_year if month_of_year else 1)) }} books / month</div>
+  </div>
+</section>
+
+<section class="block">
+  <h2>Books per Year</h2>
+
+  {% if books_per_year|length == 0 %}
+    <div class="muted">No data.</div>
+  {% else %}
+    <div class="barchart">
+      {% for y in books_per_year|reverse %}
+        {% set maxv = books_per_year_max if books_per_year_max > 0 else 1 %}
+        {% set h = (y.count / maxv * 100) %}
+        <div class="barcol" title="{{ y.year }}: {{ y.count }} books">
+          <div class="barh" style="height: {{ h }}%"></div>
+          <div class="by">{{ y.year }}</div>
+          <div class="bc">{{ y.count }}</div>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+</section>
+
+<section class="block">
+  <h2>Currently Reading</h2>
+
+  {% if currently|length == 0 %}
+    <div class="muted">No active reads found.</div>
+  {% else %}
+    <div class="grid">
+      {% for b in currently %}
+        <a class="book" href="{{ b.hardcover_book_url }}" target="_blank" rel="noopener">
+          <div class="cov">
+            {% if b.cover %}
+              <img src="{{ b.cover }}" alt="cover">
+            {% else %}
+              {{ cover_placeholder("large") }}
+            {% endif %}
+          </div>
+          <div class="meta">
+            <div class="t">{{ b.title }}</div>
+            <div class="a muted">{{ b.author }}</div>
+            <div class="row">
+              {{ stars(b.rating_stars) }}
+            </div>
+            <div class="chips">
+              {% if b.genre %}{{ chip(b.genre, "Genre") }}{% endif %}
+              {% if b.pages %}{{ chip(b.pages ~ " pages", "Total pages") }}{% endif %}
+              {% if b.pct is not none %}{{ chip(b.pct ~ "%", "Progress") }}{% endif %}
+              {% if b.missing and b.missing|length > 0 %}
+                {{ chip("missing data", "Missing: " ~ (b.missing|join(", ")), "warn") }}
+              {% endif %}
+            </div>
+            <div class="bar"><div class="barin" style="width: {{ b.pct if b.pct is not none else 0 }}%"></div></div>
+            {% if b.pages and b.progress %}
+              <div class="muted small">{{ b.progress }} / {{ b.pages }} pages</div>
+            {% endif %}
+          </div>
+        </a>
+      {% endfor %}
+    </div>
+  {% endif %}
+</section>
+
+<section class="block">
+  <h2>Finished</h2>
+
+  {% if finished_count == 0 %}
+    <div class="muted">No finished books available.</div>
+  {% else %}
+    <div class="years">
+      {% for y in timeline %}
+        <section class="yearbox">
+          <div class="yearhead">
+            <div class="year">{{ y.year }}</div>
+            <div class="pill">{{ y.count }} books</div>
+          </div>
+
+          <!-- grüner, dicker Timeline-Strahl -->
+          <div class="yearline"></div>
+
+          <div class="months">
+            {% for m in y.months %}
+              <div class="monthhead">
+                <div>{{ m.month_name }}</div>
+                <div class="muted small">{{ m.count }} Bücher</div>
+              </div>
+
+              <div class="mlist">
+                {% for b in m.books %}
+                  <a class="rowbook" href="{{ b.hardcover_book_url }}" target="_blank" rel="noopener">
+                    <div class="dot"></div>
+
+                    <div class="rowcard">
+                      <div class="cov small">
+                        {% if b.cover %}
+                          <img src="{{ b.cover }}" alt="cover">
+                        {% else %}
+                          {{ cover_placeholder("small") }}
+                        {% endif %}
+                      </div>
+
+                      <div class="meta">
+                        <div class="toprow">
+                          <div class="t">{{ b.title }}</div>
+                          <div class="rt">
+                            {{ stars(b.rating_stars) }}
+                            {% if b.duration_days is not none %}
+                              <div class="muted small">{{ b.duration_days }}d</div>
+                            {% endif %}
+                          </div>
+                        </div>
+                        <div class="a muted">{{ b.author }}</div>
+                        <div class="chips">
+                          {% if b.genre %}{{ chip(b.genre, "Genre") }}{% endif %}
+                          {% if b.pages %}{{ chip(b.pages ~ " pages", "Total pages") }}{% endif %}
+                          {% if b.duration_days is not none %}{{ chip(b.duration_days ~ " days", "Reading duration") }}{% endif %}
+                          {% if b.rating_stars is not none %}{{ chip(b.rating_stars ~ "/5", "Rating") }}{% endif %}
+                          {% if b.missing and b.missing|length > 0 %}
+                            {{ chip("missing data", "Missing: " ~ (b.missing|join(", ")), "warn") }}
+                          {% endif %}
+                        </div>
+                        <div class="muted small">Finished: {{ b.finished_at }}</div>
+                      </div>
+                    </div>
+                  </a>
+                {% endfor %}
+              </div>
+            {% endfor %}
+          </div>
+        </section>
+      {% endfor %}
+    </div>
+  {% endif %}
+</section>
+
+{% endblock %}

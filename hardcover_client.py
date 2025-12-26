@@ -52,14 +52,16 @@ def graphql(token: str, query: str, variables: Optional[Dict[str, Any]] = None) 
 
 
 def fetch_hardcover_data(token: str, cache_path: str, ttl_seconds: int, nocache: bool) -> Dict[str, Any]:
+    # Local caching is useful; CI disables it via env (NOCACHE=1, TTL=0)
     if not nocache:
         cached = _read_cache(cache_path, ttl_seconds)
         if cached is not None:
             return cached
 
     # IMPORTANT:
-    # - user_book_reads.updated_at does NOT exist in your schema -> removed.
-    # - book.genres does NOT exist in your schema -> omitted.
+    # - 'currently_reading' is NOT a users field; it's an alias for user_books with status_id=2
+    # - user_book_reads.updated_at does NOT exist in your schema -> not queried
+    # - book.genres does NOT exist in your schema -> not queried
     QUERY = """
     query GetReadingData {
       me {

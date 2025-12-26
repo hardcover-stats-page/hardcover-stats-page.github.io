@@ -8,120 +8,135 @@ from jinja2 import Environment, FileSystemLoader
 
 from hardcover_client import fetch_hardcover_data
 
-
 ROOT = Path(__file__).parent.resolve()
-DOCS_DIR = ROOT / "docs"
-READING_DIR = DOCS_DIR / "reading"
+DOCS = ROOT / "docs"
 STATIC_SRC = ROOT / "static"
-STATIC_DST = DOCS_DIR / "static"
-TEMPLATES_DIR = ROOT / "templates"
+STATIC_DST = DOCS / "static"
+TEMPLATES = ROOT / "templates"
+CACHE_PATH = ROOT / ".cache" / "hardcover.json"
+CACHE_TTL = int(os.getenv("CACHE_TTL_SECONDS", "900"))
 
 
-def _utc_stamp() -> str:
+def now_utc():
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
-def _write_text(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-
-
-def _copy_static() -> None:
-    STATIC_DST.mkdir(parents=True, exist_ok=True)
-    # replace completely to avoid stale files
+def copy_static():
     if STATIC_DST.exists():
         shutil.rmtree(STATIC_DST)
     shutil.copytree(STATIC_SRC, STATIC_DST)
 
 
-def _compute_totals_from_finished(finished: list[dict]) -> dict:
-    """
-    finished: list of finished books in your normalized structure, each element e.g.
-      {
-        "title": "...",
-        "pages": 394 or None,
-        ...
-      }
-    """
-    total_books = len(finished)
-    total_pages = 0
-    missing_pages = 0
-
+def compute_totals(finished):
+    pages = 0
+    missing = 0
     for b in finished:
-        pages = b.get("pages")
-        if isinstance(pages, int) and pages > 0:
-            total_pages += pages
+        if b.get("pages"):
+            pages += b["pages"]
         else:
-            missing_pages += 1
-
+            missing += 1
     return {
-        "books": total_books,
-        "pages": total_pages,
-        "missing_pages": missing_pages,
+        "books": len(finished),
+        "pages": pages,
+        "missing_pages": missing,
     }
 
 
-def main() -> None:
-    token = os.getenv("HARDCOVER_API_TOKEN", "").strip()
+def main():
+    token = os.getenv("HARDCOVER_API_TOKEN")
     if not token:
-        raise SystemExit("HARDCOVER_API_TOKEN is missing")
+        raise SystemExit("HARDCOVER_API_TOKEN missing")
 
-    # In CI: always nocache, locally you can change it if you want
-    nocache = os.getenv("NOCACHE", "1").strip() == "1"
+    nocache = os.getenv("NOCACHE", "1") == "1"
 
-    data = fetch_hardcover_data(token, nocache=nocache)
+    raw = fetch_hardcover_data(
+        token=token,
+        cache_path=CACHE_PATH,
+        ttl_seconds=CACHE_TTL,
+        nocache=nocache,
+    )
 
-    # expected keys from hardcover_client.py
-    me = data.get("me") or {}
-    currently = data.get("currently") or []
-    finished = data.get("finished") or []
-    timeline = data.get("timeline") or []
-    books_per_year = data.get("books_per_year") or []
-    books_per_year_max = int(data.get("books_per_year_max") or 0)
-    stats = data.get("stats") or {}
+    me_raw = raw["me"]
+    books = me_raw["user_books"]
 
-    # ✅ FIX: totals are required by reading.html
-    totals = _compute_totals_from_finished(finished)
+    currently = []
+    finished = []
 
-    build_stamp = _utc_stamp()
+    for ub in books:
+        book = ub["book"]
+        authors = ", ".join(a["author"]["name"] for a in book["contributions"])
 
-    env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)))
+        entry = {
+            "title": book["title"],
+            "author": authors,
+            "pages": book["pages"],
+            "cover": book["image"]["url"] if book["image"] else None,
+            "rating_stars": ub["rating"],
+            "hardcover_book_url": f"https://hardcover.app/books/{book['slug']}",
+            "progress": 0,
+            "pct": None,
+            "duration_days": None,
+            "missing": False,
+        }
+
+        reads = ub["user_book_reads"] or []
+        if reads:
+            r = reads[-1]
+            entry["progress"] = r["progress"] or 0
+            if book["pages"]:
+                entry["pct"] = int(entry["progress"] / book["pages"] * 100)
+
+            if r.get("started_at") and r.get("finished_at"):
+                sd = datetime.fromisoformat(r["started_at"][:10])
+                fd = datetime.fromisoformat(r["finished_at"][:10])
+                entry["duration_days"] = (fd - sd).days + 1
+
+        if ub["status_id"] == 2:
+            currently.append(entry)
+        elif ub["status_id"] == 3:
+            finished.append(entry)
+
+    totals = compute_totals(finished)
+
+    env = Environment(loader=FileSystemLoader(TEMPLATES))
     tpl = env.get_template("reading.html")
 
     html = tpl.render(
-        me=me,
-        stats=stats,
-        totals=totals,  # ✅ THIS FIXES YOUR ERROR
+        me={
+            "name": me_raw["name"],
+            "username": me_raw["username"],
+            "avatar": me_raw["image"]["url"] if me_raw["image"] else None,
+            "profile_url": f"https://hardcover.app/@{me_raw['username']}",
+        },
+        stats={
+            "goal_total": me_raw["goals"][0]["goal"] if me_raw["goals"] else 0,
+            "goal_progress": me_raw["goals"][0]["progress"] if me_raw["goals"] else 0,
+            "goal_pct": (
+                me_raw["goals"][0]["progress"] / me_raw["goals"][0]["goal"] * 100
+                if me_raw["goals"] else 0
+            ),
+            "year": datetime.now().year,
+        },
+        totals=totals,
         currently=currently,
-        timeline=timeline,
-        books_per_year=books_per_year,
-        books_per_year_max=books_per_year_max,
-        build={"stamp": build_stamp},
+        books_per_year=[],  # already rendered elsewhere
+        books_per_year_max=0,
+        timeline=[],
+        build={"stamp": now_utc()},
     )
 
-    # output
-    READING_DIR.mkdir(parents=True, exist_ok=True)
-    _write_text(READING_DIR / "index.html", html)
+    (DOCS / "reading").mkdir(parents=True, exist_ok=True)
+    (DOCS / "reading" / "index.html").write_text(html, encoding="utf-8")
 
-    _write_text(
-        DOCS_DIR / "build.json",
+    (DOCS / "build.json").write_text(
         json.dumps(
-            {
-                "build": build_stamp,
-                "nocache": nocache,
-                "counts": {
-                    "currently": len(currently),
-                    "finished": len(finished),
-                    "timeline_years": len(timeline),
-                },
-                "totals": totals,
-            },
+            {"build": now_utc(), "totals": totals},
             indent=2,
         ),
+        encoding="utf-8",
     )
 
-    _copy_static()
-    print(f"OK: wrote {READING_DIR / 'index.html'}")
+    copy_static()
 
 
 if __name__ == "__main__":

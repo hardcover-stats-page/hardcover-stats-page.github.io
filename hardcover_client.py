@@ -1,128 +1,73 @@
 import json
-import os
 import time
-from typing import Any, Dict, Optional
-
+from pathlib import Path
 import requests
 
-HC_URL = "https://api.hardcover.app/v1/graphql"
+HARDCOVER_API = "https://api.hardcover.app/v1/graphql"
 
+QUERY = """
+query {
+  me {
+    username
+    name
+    image { url }
+    goals(limit: 1) { goal progress }
 
-def _read_cache(path: str, ttl_seconds: int) -> Optional[Dict[str, Any]]:
-    if not path:
-        return None
-    try:
-        if not os.path.exists(path):
-            return None
-        age = time.time() - os.path.getmtime(path)
-        if age > ttl_seconds:
-            return None
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return None
-
-
-def _write_cache(path: str, payload: Dict[str, Any]) -> None:
-    if not path:
-        return
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False)
-    os.replace(tmp, path)
-
-
-def graphql(token: str, query: str, variables: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    headers = {
-        "content-type": "application/json",
-        "authorization": f"Bearer {token}",
+    user_books {
+      status_id
+      rating
+      last_read_date
+      book {
+        title
+        slug
+        pages
+        image { url }
+        contributions { author { name } }
+      }
+      user_book_reads {
+        progress
+        started_at
+        finished_at
+      }
     }
+  }
+}
+"""
+
+
+def _graphql(token: str) -> dict:
     r = requests.post(
-        HC_URL,
-        headers=headers,
-        json={"query": query, "variables": variables or {}},
+        HARDCOVER_API,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+        json={"query": QUERY},
         timeout=30,
     )
     r.raise_for_status()
     data = r.json()
     if "errors" in data:
         raise RuntimeError(f"GraphQL errors: {data['errors']}")
-    return data.get("data") or {}
+    return data["data"]
 
 
-def fetch_hardcover_data(token: str, cache_path: str, ttl_seconds: int, nocache: bool) -> Dict[str, Any]:
-    # Local caching is useful; CI disables it via env (NOCACHE=1, TTL=0)
-    if not nocache:
-        cached = _read_cache(cache_path, ttl_seconds)
-        if cached is not None:
-            return cached
-
-    # IMPORTANT:
-    # - 'currently_reading' is NOT a users field; it's an alias for user_books with status_id=2
-    # - user_book_reads.updated_at does NOT exist in your schema -> not queried
-    # - book.genres does NOT exist in your schema -> not queried
-    QUERY = """
-    query GetReadingData {
-      me {
-        username
-        name
-        image { url }
-
-        goals(where: { state: { _eq: "active" } }, limit: 1) {
-          goal
-          progress
-        }
-
-        currently_reading: user_books(
-          where: { status_id: { _eq: 2 } }
-          order_by: { updated_at: desc }
-        ) {
-          id
-          updated_at
-          rating
-          last_read_date
-          user_book_reads {
-            started_at
-            progress
-            finished_at
-          }
-          book {
-            title
-            slug
-            pages
-            image { url }
-            contributions { author { name } }
-          }
-        }
-
-        recently_read: user_books(
-          where: { status_id: { _eq: 3 } }
-          order_by: { last_read_date: desc }
-        ) {
-          id
-          updated_at
-          rating
-          has_review
-          last_read_date
-          user_book_reads {
-            started_at
-            progress
-            finished_at
-          }
-          book {
-            title
-            slug
-            pages
-            image { url }
-            contributions { author { name } }
-          }
-        }
-      }
-    }
+def fetch_hardcover_data(
+    token: str,
+    cache_path: Path,
+    ttl_seconds: int,
+    nocache: bool = False,
+) -> dict:
     """
+    Unified Hardcover fetch with optional cache.
+    """
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
 
-    data = graphql(token, QUERY, variables={})
-    payload = {"me": data.get("me")}
-    _write_cache(cache_path, payload)
-    return payload
+    if not nocache and cache_path.exists():
+        age = time.time() - cache_path.stat().st_mtime
+        if age < ttl_seconds:
+            return json.loads(cache_path.read_text())
+
+    data = _graphql(token)
+    cache_path.write_text(json.dumps(data, indent=2))
+    return data

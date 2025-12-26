@@ -100,7 +100,7 @@
     {% else %}
       <div class="card empty">
         <div class="label">No current reads found.</div>
-        <div class="muted">Check your Hardcover statuses (status_id=2) or token permissions.</div>
+        <div class="muted">Check Hardcover statuses (status_id=2) or token permissions.</div>
       </div>
     {% endif %}
   </section>
@@ -183,6 +183,6 @@
   </section>
 
   <footer class="footer muted">
-    Build: {{ build.stamp }} · <a class="link" href="../build.json" target="_blank" rel="noreferrer">build.json</a>
+    Build: {{ build.stamp }} · <a class="link" href="{{ rel_root }}build.json" target="_blank" rel="noreferrer">build.json</a>
   </footer>
 {% endblock %}

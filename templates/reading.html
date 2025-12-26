@@ -1,10 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Reading Dashboard{% endblock %}
 
-{% macro stars(n) -%}
-  {% if n %}
-    <span class="stars" aria-label="{{n}} stars">
-      {% for _ in range(n) %}★{% endfor %}
+{% macro stars(rating) -%}
+  {% if rating is not none %}
+    {% set full = rating|int %}
+    {% set half = 1 if rating - full >= 0.5 else 0 %}
+
+    <span class="stars" aria-label="{{ rating }} stars">
+      {% for _ in range(full) %}★{% endfor %}
+      {% if half %}☆{% endif %}
     </span>
   {% endif %}
 {%- endmacro %}

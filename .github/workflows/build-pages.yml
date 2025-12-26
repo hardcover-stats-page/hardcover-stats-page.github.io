@@ -1,17 +1,19 @@
-name: Build static docs (commit /docs)
+name: Build & Deploy GitHub Pages
 
 on:
   workflow_dispatch:
   push:
     branches: ["main"]
   schedule:
-    - cron: "0 * * * *"
+    - cron: "0 * * * *" # every hour
 
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
 
 concurrency:
-  group: "build-docs"
+  group: "pages"
   cancel-in-progress: true
 
 jobs:
@@ -37,21 +39,35 @@ jobs:
           NOCACHE: "1"
           CACHE_TTL_SECONDS: "0"
           DEBUG_DUMP: "0"
-          DEBUG_TO_DOCS: "0"
+          DEBUG_TO_DOCS: "0"  # set to "1" only temporarily (would publish your raw data)
         run: |
           rm -rf .cache
           python build_static.py
 
+          # ensure assets exist in docs/static
           rm -rf docs/static
           mkdir -p docs/static
           cp -r static/* docs/static/
 
+          echo "---- docs tree ----"
+          find docs -maxdepth 3 -type f | sort
           test -f docs/reading/index.html
 
-      - name: Commit changes
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add docs
-          git commit -m "Update reading dashboard" || echo "No changes"
-          git push
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
